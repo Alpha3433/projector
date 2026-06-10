@@ -4,6 +4,8 @@ export interface DeviceSpec {
   width: number
   height: number
   dpr: number
+  /** iOS safe-area insets in portrait (status bar / Dynamic Island, home indicator). */
+  safeArea: { top: number; bottom: number; left: number; right: number }
   /** Corner radius of the screen itself. */
   screenRadius: number
   /** Bezel thicknesses and the outer shell radius. */
@@ -22,6 +24,7 @@ export const DEVICES: DeviceSpec[] = [
     width: 393,
     height: 852,
     dpr: 3,
+    safeArea: { top: 59, bottom: 34, left: 0, right: 0 },
     screenRadius: 44,
     chrome: { top: 13, bottom: 13, side: 13, radius: 56 },
     cutout: 'island',
@@ -36,6 +39,7 @@ export const DEVICES: DeviceSpec[] = [
     width: 430,
     height: 932,
     dpr: 3,
+    safeArea: { top: 59, bottom: 34, left: 0, right: 0 },
     screenRadius: 48,
     chrome: { top: 13, bottom: 13, side: 13, radius: 60 },
     cutout: 'island',
@@ -50,6 +54,7 @@ export const DEVICES: DeviceSpec[] = [
     width: 375,
     height: 812,
     dpr: 3,
+    safeArea: { top: 50, bottom: 34, left: 0, right: 0 },
     screenRadius: 40,
     chrome: { top: 12, bottom: 12, side: 12, radius: 50 },
     cutout: 'notch',
@@ -64,6 +69,7 @@ export const DEVICES: DeviceSpec[] = [
     width: 375,
     height: 667,
     dpr: 2,
+    safeArea: { top: 20, bottom: 0, left: 0, right: 0 },
     screenRadius: 2,
     chrome: { top: 72, bottom: 72, side: 14, radius: 42 },
     cutout: 'none',
@@ -78,6 +84,7 @@ export const DEVICES: DeviceSpec[] = [
     width: 744,
     height: 1133,
     dpr: 2,
+    safeArea: { top: 24, bottom: 20, left: 0, right: 0 },
     screenRadius: 16,
     chrome: { top: 24, bottom: 24, side: 24, radius: 40 },
     cutout: 'none',

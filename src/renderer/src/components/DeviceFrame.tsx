@@ -80,7 +80,8 @@ export default function DeviceFrame({
       void api.enableTouchEmulation(wv.getWebContentsId(), {
         width: device.width,
         height: device.height,
-        dpr: device.dpr
+        dpr: device.dpr,
+        safeArea: device.safeArea
       })
     }
     const onConsole = (e: Event): void => {
@@ -150,7 +151,10 @@ export default function DeviceFrame({
                 boxShadow: `0 0 0 ${maskSpread}px #15171c`
               }}
             />
-            <div className={`status-bar status-bar-${device.statusBar}`}>
+            <div
+              className={`status-bar status-bar-${device.statusBar}`}
+              style={{ height: device.safeArea.top || undefined }}
+            >
               <span className="status-time">{clock}</span>
               <span className="status-icons">
                 <SignalIcon />

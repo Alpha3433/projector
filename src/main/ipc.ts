@@ -380,6 +380,21 @@ export function registerIpc(): void {
       enabled: true,
       configuration: 'mobile'
     })
+    try {
+      // Makes CSS env(safe-area-inset-*) resolve to real iOS values, so
+      // SafeAreaView/safe-area-context pad content away from the Dynamic
+      // Island and home indicator exactly like on a physical device.
+      await dbg.sendCommand('Emulation.setSafeAreaInsetsOverride', {
+        insets: {
+          top: metrics.safeArea.top,
+          left: metrics.safeArea.left,
+          bottom: metrics.safeArea.bottom,
+          right: metrics.safeArea.right
+        }
+      })
+    } catch {
+      // Unsupported on older Chromium — preview still works, just without insets.
+    }
   })
 
   // --- misc ---

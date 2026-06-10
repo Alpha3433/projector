@@ -60,6 +60,8 @@ export interface DeviceMetrics {
   width: number
   height: number
   dpr: number
+  /** iOS safe-area insets for the device, injected via CSS env() emulation. */
+  safeArea: { top: number; bottom: number; left: number; right: number }
 }
 
 export type DeviceFlowEvent =

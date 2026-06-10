@@ -62,6 +62,9 @@ pick repo + branch
    → spawn `npx expo start --web` on a free port
    → render http://localhost:<port> in a <webview> inside the device frame
    → CDP: Emulation.setDeviceMetricsOverride + setTouchEmulationEnabled
+        + setSafeAreaInsetsOverride (per-device iOS safe areas, so
+          SafeAreaView pads around the Dynamic Island / home indicator
+          exactly like on a physical iPhone)
 ```
 
 The toolbar lets you switch branches (one click — Projector re-syncs and restarts the server),
