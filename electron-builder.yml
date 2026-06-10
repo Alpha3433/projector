@@ -1,0 +1,17 @@
+appId: dev.projector.app
+productName: Projector
+directories:
+  output: dist
+files:
+  - out/**
+  - package.json
+npmRebuild: false
+mac:
+  category: public.app-category.developer-tools
+linux:
+  target:
+    - AppImage
+  category: Development
+win:
+  target:
+    - nsis
