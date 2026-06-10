@@ -75,6 +75,12 @@ dev server), and `APP` (the app's own `console.*` output, captured from the webv
 Refresh updates the app live; if the dependency manifest changed, the whole pipeline restarts
 instead. Toggle it from the toolbar.
 
+**Local folder mode:** the picker's **Open local folder…** button runs a working copy on your
+machine instead of a GitHub clone. Metro watches the folder directly, so every file change —
+saves, checkouts, or commits made by tools like Claude Desktop / Claude Code — appears in the
+frame instantly, with no push required. Local projects show a "live folder" badge and a
+*Restart server* button in place of the branch controls.
+
 Project clones live under Electron's `userData` directory (`projects/<owner>__<repo>`), so
 reopening a project is fast and installs are skipped when nothing changed.
 

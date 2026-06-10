@@ -30,9 +30,10 @@ export interface ProjectSelection {
   branch: string
 }
 
-export interface RecentProject extends ProjectSelection {
-  lastOpenedAt: number
-}
+/** `kind` is absent on entries written by older versions — treat as 'github'. */
+export type RecentProject =
+  | (ProjectSelection & { kind?: 'github'; lastOpenedAt: number })
+  | { kind: 'local'; path: string; lastOpenedAt: number }
 
 export type ProjectPhase =
   | 'idle'
@@ -76,6 +77,8 @@ export interface ProjectorApi {
   listRepos(): Promise<RepoInfo[]>
   listBranches(owner: string, repo: string): Promise<BranchInfo[]>
   openProject(sel: ProjectSelection): Promise<void>
+  openLocalProject(path: string): Promise<void>
+  pickLocalFolder(): Promise<string | null>
   stopProject(): Promise<void>
   getRecentProjects(): Promise<RecentProject[]>
   getAutoRefresh(): Promise<boolean>

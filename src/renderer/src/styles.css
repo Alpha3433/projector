@@ -322,6 +322,23 @@ select:focus {
 .search-input {
   margin-bottom: 14px;
 }
+.picker-actions-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.picker-actions-row .search-input {
+  flex: 1;
+}
+.live-badge {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ok);
+  border: 1px solid rgba(91, 217, 155, 0.4);
+  border-radius: 999px;
+  padding: 3px 10px;
+  white-space: nowrap;
+}
 .loading-row {
   padding: 18px 4px;
 }

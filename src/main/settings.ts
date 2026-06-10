@@ -48,10 +48,21 @@ export function projectDir(sel: Pick<ProjectSelection, 'owner' | 'repo'>): strin
 export function addRecentProject(sel: ProjectSelection): void {
   const s = settings()
   s.recentProjects = [
-    { ...sel, lastOpenedAt: Date.now() },
+    { kind: 'github' as const, ...sel, lastOpenedAt: Date.now() },
     ...s.recentProjects.filter(
-      (p) => !(p.owner === sel.owner && p.repo === sel.repo && p.branch === sel.branch)
+      (p) =>
+        p.kind === 'local' ||
+        !(p.owner === sel.owner && p.repo === sel.repo && p.branch === sel.branch)
     )
+  ].slice(0, 12)
+  persistSettings()
+}
+
+export function addRecentLocal(localPath: string): void {
+  const s = settings()
+  s.recentProjects = [
+    { kind: 'local' as const, path: localPath, lastOpenedAt: Date.now() },
+    ...s.recentProjects.filter((p) => !(p.kind === 'local' && p.path === localPath))
   ].slice(0, 12)
   persistSettings()
 }

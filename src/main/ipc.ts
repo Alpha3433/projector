@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain, shell, webContents } from 'electron'
+import { BrowserWindow, dialog, ipcMain, shell, webContents } from 'electron'
 import type { ChildProcess } from 'child_process'
 import fs from 'fs'
 import path from 'path'
@@ -31,6 +31,7 @@ import {
   type PackageManager
 } from './runner'
 import {
+  addRecentLocal,
   addRecentProject,
   persistSettings,
   projectDir,
@@ -66,21 +67,122 @@ export function stopCurrentProject(): void {
 
 const AUTO_REFRESH_INTERVAL_MS = 20_000
 
-async function openProject(sel: ProjectSelection): Promise<void> {
+type Emit = (e: ProjectEvent) => void
+type Log = (text: string, source?: LogLine['source']) => void
+
+function newRun(): { run: Run; emit: Emit; log: Log; checkAborted: () => void } {
   stopCurrentProject()
   const run: Run = { id: ++runCounter, ac: new AbortController() }
   current = run
-
-  const emit = (e: ProjectEvent): void => {
+  const emit: Emit = (e) => {
     if (current === run) broadcast('project:event', e)
   }
-  const log = (text: string, source: LogLine['source'] = 'server'): void => {
+  const log: Log = (text, source = 'server') => {
     if (current === run) broadcast('project:log', { source, text } satisfies LogLine)
   }
   const checkAborted = (): void => {
     if (run.ac.signal.aborted) throw new Error('Cancelled')
   }
+  return { run, emit, log, checkAborted }
+}
 
+interface LaunchResult {
+  appDir: string
+  appRel: string
+  pm: PackageManager
+  url: string
+}
+
+/**
+ * Shared back half of the pipeline: locate the Expo app inside `rootDir`,
+ * install dependencies if needed, start the dev server, and wait for it.
+ * With `lenientInstall`, a pre-existing node_modules is trusted even when
+ * no lockfile hash is recorded (used for local working copies, which the
+ * user manages themselves).
+ */
+async function launchApp(
+  run: Run,
+  rootDir: string,
+  hashKeyBase: string,
+  lenientInstall: boolean,
+  emit: Emit,
+  log: Log
+): Promise<LaunchResult> {
+  const checkAborted = (): void => {
+    if (run.ac.signal.aborted) throw new Error('Cancelled')
+  }
+
+  const found = findAppDir(rootDir)
+  let appDir: string
+  let appRel: string
+  if (found) {
+    appDir = found.dir
+    appRel = found.rel
+    if (appRel !== '.') log(`Detected Expo app in ${appRel}/`, 'system')
+  } else if (readPackageJson(rootDir)) {
+    appDir = rootDir
+    appRel = '.'
+    log(
+      "Warning: no 'expo' dependency found anywhere in this project — attempting to run from the root anyway. Bare React Native apps need web support (react-native-web) to run in Projector.",
+      'system'
+    )
+  } else {
+    throw new Error(
+      "Couldn't find an Expo app here — no directory (root or up to three levels deep) has a package.json with an 'expo' dependency."
+    )
+  }
+
+  for (const example of ['.env.example', '.env.sample', '.env.local.example']) {
+    if (fs.existsSync(path.join(appDir, example)) && !fs.existsSync(path.join(appDir, '.env'))) {
+      log(
+        `Note: ${appRel === '.' ? '' : `${appRel}/`}${example} exists but .env does not — the app may need environment variables (API URLs, keys) to fully work.`,
+        'system'
+      )
+      break
+    }
+  }
+
+  const pm = detectPackageManager(appDir)
+  const hash = lockfileHash(appDir, pm)
+  const key = `${hashKeyBase}#${appRel}`
+  const hasModules = fs.existsSync(path.join(appDir, 'node_modules'))
+  const storedHash = settings().lockHashes[key]
+  let needsInstall = !hasModules || storedHash !== hash
+  if (needsInstall && lenientInstall && hasModules && storedHash === undefined) {
+    log('node_modules already present — trusting the existing install', 'system')
+    settings().lockHashes[key] = hash
+    persistSettings()
+    needsInstall = false
+  }
+
+  if (needsInstall) {
+    emit({ phase: 'installing', message: `Installing dependencies with ${pm}…` })
+    await installDeps(appDir, pm, log, run.ac.signal)
+    checkAborted()
+    settings().lockHashes[key] = hash
+    persistSettings()
+  } else {
+    log('Dependencies unchanged — skipping install', 'system')
+  }
+
+  const port = await getFreePort()
+  emit({ phase: 'starting', message: `Starting Expo dev server on port ${port}…` })
+  const child = startExpo(appDir, port, log)
+  run.child = child
+  child.on('exit', (code) => {
+    if (current === run && code !== null && code !== 0) {
+      emit({ phase: 'error', message: `Dev server exited with code ${code} — check the logs` })
+    }
+  })
+
+  await waitForServer(port, run.ac.signal, 240_000)
+  checkAborted()
+
+  return { appDir, appRel, pm, url: `http://localhost:${port}` }
+}
+
+async function openProject(sel: ProjectSelection): Promise<void> {
+  const { run, emit, log, checkAborted } = newRun()
   try {
     const token = loadToken() ?? undefined
     const dir = projectDir(sel)
@@ -90,72 +192,40 @@ async function openProject(sel: ProjectSelection): Promise<void> {
     const headSha = await syncRepo({ dir, ...sel, token, onLine: (t) => log(t, 'system') })
     checkAborted()
 
-    const found = findAppDir(dir)
-    let appDir: string
-    let appRel: string
-    if (found) {
-      appDir = found.dir
-      appRel = found.rel
-      if (appRel !== '.') log(`Detected Expo app in ${appRel}/`, 'system')
-    } else if (readPackageJson(dir)) {
-      appDir = dir
-      appRel = '.'
-      log(
-        "Warning: no 'expo' dependency found anywhere in this repo — attempting to run from the root anyway. Bare React Native apps need web support (react-native-web) to run in Projector.",
-        'system'
-      )
-    } else {
-      throw new Error(
-        "Couldn't find an Expo app in this repository — no directory (root or up to three levels deep) has a package.json with an 'expo' dependency."
-      )
-    }
+    const { appDir, pm, url } = await launchApp(run, dir, projectKey(sel), false, emit, log)
 
-    for (const example of ['.env.example', '.env.sample', '.env.local.example']) {
-      if (fs.existsSync(path.join(appDir, example)) && !fs.existsSync(path.join(appDir, '.env'))) {
-        log(
-          `Note: ${appRel === '.' ? '' : `${appRel}/`}${example} exists but .env does not — the app may need environment variables (API URLs, keys) to fully work.`,
-          'system'
-        )
-        break
-      }
-    }
-
-    const pm = detectPackageManager(appDir)
-    const hash = lockfileHash(appDir, pm)
-    const key = `${projectKey(sel)}#${appRel}`
-    const needsInstall =
-      !fs.existsSync(path.join(appDir, 'node_modules')) || settings().lockHashes[key] !== hash
-
-    if (needsInstall) {
-      emit({ phase: 'installing', message: `Installing dependencies with ${pm}…` })
-      await installDeps(appDir, pm, log, run.ac.signal)
-      checkAborted()
-      settings().lockHashes[key] = hash
-      persistSettings()
-    } else {
-      log('Dependencies unchanged — skipping install', 'system')
-    }
-
-    const port = await getFreePort()
-    emit({ phase: 'starting', message: `Starting Expo dev server on port ${port}…` })
-    const child = startExpo(appDir, port, log)
-    run.child = child
-    child.on('exit', (code) => {
-      if (current === run && code !== null && code !== 0) {
-        emit({ phase: 'error', message: `Dev server exited with code ${code} — check the logs` })
-      }
-    })
-
-    await waitForServer(port, run.ac.signal, 240_000)
-    checkAborted()
-
-    const url = `http://localhost:${port}`
     emit({ phase: 'ready', url, message: 'Dev server ready' })
     addRecentProject(sel)
 
     if (token) {
       startCommitWatcher(run, sel, token, { dir, appDir, pm, headSha, url, emit, log })
     }
+  } catch (err) {
+    if (!run.ac.signal.aborted) {
+      if (run.child) killTree(run.child)
+      emit({ phase: 'error', message: (err as Error).message })
+    }
+  }
+}
+
+async function openLocalProject(localPath: string): Promise<void> {
+  const { run, emit, log } = newRun()
+  try {
+    if (!fs.existsSync(localPath) || !fs.statSync(localPath).isDirectory()) {
+      throw new Error(`Folder not found: ${localPath}`)
+    }
+
+    emit({ phase: 'syncing', message: `Opening local folder ${localPath}` })
+    log(`Local working copy: ${localPath}`, 'system')
+    log(
+      'Live mode: Metro watches this folder directly, so file changes (including commits made by tools like Claude) appear instantly — no push needed.',
+      'system'
+    )
+
+    const { url } = await launchApp(run, localPath, `local:${localPath}`, true, emit, log)
+
+    emit({ phase: 'ready', url, message: 'Dev server ready — watching local files' })
+    addRecentLocal(localPath)
   } catch (err) {
     if (!run.ac.signal.aborted) {
       if (run.child) killTree(run.child)
@@ -243,6 +313,14 @@ export function registerIpc(): void {
 
   // --- project lifecycle ---
   ipcMain.handle('project:open', (_e, sel: ProjectSelection) => openProject(sel))
+  ipcMain.handle('project:open-local', (_e, localPath: string) => openLocalProject(localPath))
+  ipcMain.handle('project:pick-local', async () => {
+    const res = await dialog.showOpenDialog({
+      title: 'Choose your app folder (repo root or the Expo app directory)',
+      properties: ['openDirectory']
+    })
+    return res.canceled || res.filePaths.length === 0 ? null : res.filePaths[0]
+  })
   ipcMain.handle('project:stop', () => {
     stopCurrentProject()
   })

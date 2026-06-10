@@ -24,7 +24,8 @@ const PHASE_LABEL: Record<ProjectPhase, string> = {
 }
 
 export default function Workspace({ sel, onBack }: Props): JSX.Element {
-  const [branch, setBranch] = useState(sel.branch)
+  const isLocal = sel.kind === 'local'
+  const [branch, setBranch] = useState(sel.kind === 'github' ? sel.branch : '')
   const [phase, setPhase] = useState<ProjectPhase>('idle')
   const [statusMsg, setStatusMsg] = useState('')
   const [url, setUrl] = useState<string | null>(null)
@@ -61,9 +62,17 @@ export default function Workspace({ sel, onBack }: Props): JSX.Element {
     }
   }, [pushLog])
 
+  const start = useCallback((): void => {
+    if (sel.kind === 'local') {
+      void api.openLocalProject(sel.path)
+    } else {
+      void api.openProject({ owner: sel.owner, repo: sel.repo, branch })
+    }
+  }, [sel, branch])
+
   useEffect(() => {
-    void api.openProject({ owner: sel.owner, repo: sel.repo, branch })
-  }, [sel.owner, sel.repo, branch])
+    start()
+  }, [start])
 
   useEffect(() => {
     return () => {
@@ -102,29 +111,41 @@ export default function Workspace({ sel, onBack }: Props): JSX.Element {
         <button className="btn btn-ghost btn-small" onClick={onBack}>
           ← Repos
         </button>
-        <span className="toolbar-title">
-          {sel.owner}/{sel.repo}
-        </span>
-        <select
-          className="branch-select"
-          value={branch}
-          disabled={busy}
-          onChange={(e) => setBranch(e.target.value)}
-          title="Switch branch"
+        <span
+          className="toolbar-title"
+          title={isLocal ? sel.path : undefined}
         >
-          {sel.branches.map((b) => (
-            <option key={b.name} value={b.name}>
-              {b.name}
-            </option>
-          ))}
-        </select>
+          {isLocal
+            ? (sel.path.split(/[\\/]/).filter(Boolean).pop() ?? sel.path)
+            : `${sel.owner}/${sel.repo}`}
+        </span>
+        {isLocal && (
+          <span className="live-badge" title="Metro watches this folder — file changes appear instantly">
+            ● live folder
+          </span>
+        )}
+        {sel.kind === 'github' && (
+          <select
+            className="branch-select"
+            value={branch}
+            disabled={busy}
+            onChange={(e) => setBranch(e.target.value)}
+            title="Switch branch"
+          >
+            {sel.branches.map((b) => (
+              <option key={b.name} value={b.name}>
+                {b.name}
+              </option>
+            ))}
+          </select>
+        )}
         <button
           className="btn btn-ghost btn-small"
           disabled={busy}
-          title="Fetch the latest commits and restart"
-          onClick={() => void api.openProject({ owner: sel.owner, repo: sel.repo, branch })}
+          title={isLocal ? 'Restart the dev server' : 'Fetch the latest commits and restart'}
+          onClick={start}
         >
-          ⟳ Pull latest
+          {isLocal ? '⟳ Restart server' : '⟳ Pull latest'}
         </button>
         <button
           className="btn btn-ghost btn-small"
@@ -146,13 +167,15 @@ export default function Workspace({ sel, onBack }: Props): JSX.Element {
             </option>
           ))}
         </select>
-        <label
-          className="auto-refresh-toggle"
-          title="Automatically re-sync when new commits land on this branch"
-        >
-          <input type="checkbox" checked={autoRefresh} onChange={toggleAutoRefresh} />
-          Auto-refresh
-        </label>
+        {sel.kind === 'github' && (
+          <label
+            className="auto-refresh-toggle"
+            title="Automatically re-sync when new commits land on this branch"
+          >
+            <input type="checkbox" checked={autoRefresh} onChange={toggleAutoRefresh} />
+            Auto-refresh
+          </label>
+        )}
         <div className="toolbar-spacer" />
         {url && <span className="toolbar-url">{url}</span>}
         <span className={`phase-chip phase-${phase}`}>{PHASE_LABEL[phase]}</span>

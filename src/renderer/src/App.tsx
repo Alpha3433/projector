@@ -5,9 +5,9 @@ import RepoPicker from './screens/RepoPicker'
 import SignIn from './screens/SignIn'
 import Workspace from './screens/Workspace'
 
-export interface WorkspaceSelection extends ProjectSelection {
-  branches: BranchInfo[]
-}
+export type WorkspaceSelection =
+  | ({ kind: 'github' } & ProjectSelection & { branches: BranchInfo[] })
+  | { kind: 'local'; path: string }
 
 type Route =
   | { name: 'loading' }

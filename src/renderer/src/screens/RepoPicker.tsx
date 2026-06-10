@@ -61,19 +61,28 @@ export default function RepoPicker({ auth, onOpen, onSignOut }: Props): JSX.Elem
 
   const openSelected = (): void => {
     if (!selected || !branches) return
-    onOpen({ owner: selected.owner, repo: selected.name, branch, branches })
+    onOpen({ kind: 'github', owner: selected.owner, repo: selected.name, branch, branches })
   }
 
   const openRecent = async (p: RecentProject): Promise<void> => {
+    if (p.kind === 'local') {
+      onOpen({ kind: 'local', path: p.path })
+      return
+    }
     setOpening(true)
     setError(null)
     try {
       const b = await api.listBranches(p.owner, p.repo)
-      onOpen({ owner: p.owner, repo: p.repo, branch: p.branch, branches: b })
+      onOpen({ kind: 'github', owner: p.owner, repo: p.repo, branch: p.branch, branches: b })
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
       setOpening(false)
     }
+  }
+
+  const openLocalFolder = async (): Promise<void> => {
+    const folder = await api.pickLocalFolder()
+    if (folder) onOpen({ kind: 'local', path: folder })
   }
 
   return (
@@ -101,15 +110,20 @@ export default function RepoPicker({ auth, onOpen, onSignOut }: Props): JSX.Elem
             <div className="recent-row">
               {recent.map((p) => (
                 <button
-                  key={`${p.owner}/${p.repo}#${p.branch}`}
+                  key={p.kind === 'local' ? `local:${p.path}` : `${p.owner}/${p.repo}#${p.branch}`}
                   className="recent-chip"
                   disabled={opening}
+                  title={p.kind === 'local' ? p.path : undefined}
                   onClick={() => void openRecent(p)}
                 >
                   <span className="recent-repo">
-                    {p.owner}/{p.repo}
+                    {p.kind === 'local'
+                      ? (p.path.split(/[\\/]/).filter(Boolean).pop() ?? p.path)
+                      : `${p.owner}/${p.repo}`}
                   </span>
-                  <span className="recent-branch">{p.branch}</span>
+                  <span className="recent-branch">
+                    {p.kind === 'local' ? '📁 local folder' : p.branch}
+                  </span>
                 </button>
               ))}
             </div>
@@ -118,13 +132,22 @@ export default function RepoPicker({ auth, onOpen, onSignOut }: Props): JSX.Elem
 
         <section className="repos-section">
           <h2>Your repositories</h2>
-          <input
-            className="search-input"
-            type="text"
-            placeholder="Search repositories…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
+          <div className="picker-actions-row">
+            <input
+              className="search-input"
+              type="text"
+              placeholder="Search repositories…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+            <button
+              className="btn btn-ghost"
+              title="Run a folder on this computer — file changes appear in the frame instantly, no push needed"
+              onClick={() => void openLocalFolder()}
+            >
+              📁 Open local folder…
+            </button>
+          </div>
 
           {!filtered && !error && <div className="muted loading-row">Loading repositories…</div>}
 
