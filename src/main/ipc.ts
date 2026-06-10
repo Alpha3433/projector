@@ -16,17 +16,19 @@ import {
   signInWithToken,
   startDeviceFlow
 } from './auth'
-import { listBranches, listRepos } from './github'
+import { getBranchHead, listBranches, listRepos } from './github'
 import { syncRepo } from './gitops'
 import {
   detectPackageManager,
+  findAppDir,
   getFreePort,
   installDeps,
   killTree,
   lockfileHash,
   readPackageJson,
   startExpo,
-  waitForServer
+  waitForServer,
+  type PackageManager
 } from './runner'
 import {
   addRecentProject,
@@ -46,6 +48,7 @@ interface Run {
   id: number
   ac: AbortController
   child?: ChildProcess
+  watcher?: NodeJS.Timeout
 }
 
 let runCounter = 0
@@ -56,9 +59,12 @@ export function stopCurrentProject(): void {
   const run = current
   current = null
   run.ac.abort()
+  if (run.watcher) clearInterval(run.watcher)
   if (run.child) killTree(run.child)
   broadcast('project:event', { phase: 'stopped' } satisfies ProjectEvent)
 }
+
+const AUTO_REFRESH_INTERVAL_MS = 20_000
 
 async function openProject(sel: ProjectSelection): Promise<void> {
   stopCurrentProject()
@@ -81,30 +87,48 @@ async function openProject(sel: ProjectSelection): Promise<void> {
 
     emit({ phase: 'syncing', message: `Syncing ${sel.owner}/${sel.repo} @ ${sel.branch}` })
     log(`Project cache: ${dir}`, 'system')
-    await syncRepo({ dir, ...sel, token, onLine: (t) => log(t, 'system') })
+    const headSha = await syncRepo({ dir, ...sel, token, onLine: (t) => log(t, 'system') })
     checkAborted()
 
-    const pkg = readPackageJson(dir)
-    if (!pkg) {
-      throw new Error('No package.json found at the repository root — is this a JavaScript project?')
-    }
-    const deps = { ...(pkg.dependencies as object), ...(pkg.devDependencies as object) }
-    if (!('expo' in deps)) {
+    const found = findAppDir(dir)
+    let appDir: string
+    let appRel: string
+    if (found) {
+      appDir = found.dir
+      appRel = found.rel
+      if (appRel !== '.') log(`Detected Expo app in ${appRel}/`, 'system')
+    } else if (readPackageJson(dir)) {
+      appDir = dir
+      appRel = '.'
       log(
-        "Warning: this project doesn't declare an 'expo' dependency — `npx expo` may fail. Bare React Native apps need web support (react-native-web) to run in Projector.",
+        "Warning: no 'expo' dependency found anywhere in this repo — attempting to run from the root anyway. Bare React Native apps need web support (react-native-web) to run in Projector.",
         'system'
+      )
+    } else {
+      throw new Error(
+        "Couldn't find an Expo app in this repository — no directory (root or up to three levels deep) has a package.json with an 'expo' dependency."
       )
     }
 
-    const pm = detectPackageManager(dir)
-    const hash = lockfileHash(dir, pm)
-    const key = projectKey(sel)
+    for (const example of ['.env.example', '.env.sample', '.env.local.example']) {
+      if (fs.existsSync(path.join(appDir, example)) && !fs.existsSync(path.join(appDir, '.env'))) {
+        log(
+          `Note: ${appRel === '.' ? '' : `${appRel}/`}${example} exists but .env does not — the app may need environment variables (API URLs, keys) to fully work.`,
+          'system'
+        )
+        break
+      }
+    }
+
+    const pm = detectPackageManager(appDir)
+    const hash = lockfileHash(appDir, pm)
+    const key = `${projectKey(sel)}#${appRel}`
     const needsInstall =
-      !fs.existsSync(path.join(dir, 'node_modules')) || settings().lockHashes[key] !== hash
+      !fs.existsSync(path.join(appDir, 'node_modules')) || settings().lockHashes[key] !== hash
 
     if (needsInstall) {
       emit({ phase: 'installing', message: `Installing dependencies with ${pm}…` })
-      await installDeps(dir, pm, log, run.ac.signal)
+      await installDeps(appDir, pm, log, run.ac.signal)
       checkAborted()
       settings().lockHashes[key] = hash
       persistSettings()
@@ -114,7 +138,7 @@ async function openProject(sel: ProjectSelection): Promise<void> {
 
     const port = await getFreePort()
     emit({ phase: 'starting', message: `Starting Expo dev server on port ${port}…` })
-    const child = startExpo(dir, port, log)
+    const child = startExpo(appDir, port, log)
     run.child = child
     child.on('exit', (code) => {
       if (current === run && code !== null && code !== 0) {
@@ -125,14 +149,65 @@ async function openProject(sel: ProjectSelection): Promise<void> {
     await waitForServer(port, run.ac.signal, 240_000)
     checkAborted()
 
-    emit({ phase: 'ready', url: `http://localhost:${port}`, message: 'Dev server ready' })
+    const url = `http://localhost:${port}`
+    emit({ phase: 'ready', url, message: 'Dev server ready' })
     addRecentProject(sel)
+
+    if (token) {
+      startCommitWatcher(run, sel, token, { dir, appDir, pm, headSha, url, emit, log })
+    }
   } catch (err) {
     if (!run.ac.signal.aborted) {
       if (run.child) killTree(run.child)
       emit({ phase: 'error', message: (err as Error).message })
     }
   }
+}
+
+interface WatchContext {
+  dir: string
+  appDir: string
+  pm: PackageManager
+  headSha: string
+  url: string
+  emit: (e: ProjectEvent) => void
+  log: (text: string, source?: LogLine['source']) => void
+}
+
+/**
+ * Polls the branch tip on GitHub while a project is running. On a new
+ * commit, the working tree is re-synced in place so Metro's Fast Refresh
+ * picks the changes up live; if the dependency manifest changed, the whole
+ * pipeline restarts instead.
+ */
+function startCommitWatcher(run: Run, sel: ProjectSelection, token: string, ctx: WatchContext): void {
+  let head = ctx.headSha
+  let checking = false
+  run.watcher = setInterval(() => {
+    if (checking || current !== run || settings().autoRefresh === false) return
+    checking = true
+    void (async () => {
+      try {
+        const remote = await getBranchHead(token, sel.owner, sel.repo, sel.branch)
+        if (!remote || remote === head || current !== run) return
+        ctx.log(`New commit ${remote.slice(0, 7)} on ${sel.branch} — auto-refreshing…`, 'system')
+        const hashBefore = lockfileHash(ctx.appDir, ctx.pm)
+        head = await syncRepo({ dir: ctx.dir, ...sel, token, onLine: (t) => ctx.log(t, 'system') })
+        if (current !== run) return
+        if (lockfileHash(ctx.appDir, ctx.pm) !== hashBefore) {
+          ctx.log('Dependency manifest changed — restarting the pipeline…', 'system')
+          void openProject(sel)
+        } else {
+          ctx.emit({ phase: 'ready', url: ctx.url, message: `Auto-refreshed to ${remote.slice(0, 7)}` })
+          ctx.log('Working tree updated — Metro Fast Refresh reloads the app automatically', 'system')
+        }
+      } catch (err) {
+        ctx.log(`Auto-refresh check failed: ${(err as Error).message}`, 'system')
+      } finally {
+        checking = false
+      }
+    })()
+  }, AUTO_REFRESH_INTERVAL_MS)
 }
 
 export function registerIpc(): void {
@@ -172,6 +247,13 @@ export function registerIpc(): void {
     stopCurrentProject()
   })
   ipcMain.handle('project:recent', () => settings().recentProjects)
+
+  // --- auto-refresh preference ---
+  ipcMain.handle('settings:get-autorefresh', () => settings().autoRefresh !== false)
+  ipcMain.handle('settings:set-autorefresh', (_e, value: boolean) => {
+    settings().autoRefresh = value
+    persistSettings()
+  })
 
   // --- device emulation ---
   ipcMain.handle('emulation:enable', async (_e, id: number, metrics: DeviceMetrics) => {

@@ -30,6 +30,8 @@ const api: ProjectorApi = {
   openProject: (sel: ProjectSelection) => ipcRenderer.invoke('project:open', sel),
   stopProject: () => ipcRenderer.invoke('project:stop'),
   getRecentProjects: () => ipcRenderer.invoke('project:recent'),
+  getAutoRefresh: () => ipcRenderer.invoke('settings:get-autorefresh'),
+  setAutoRefresh: (value: boolean) => ipcRenderer.invoke('settings:set-autorefresh', value),
   enableTouchEmulation: (webContentsId: number, metrics: DeviceMetrics) =>
     ipcRenderer.invoke('emulation:enable', webContentsId, metrics),
   openExternal: (url: string) => ipcRenderer.invoke('shell:open', url),

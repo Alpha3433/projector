@@ -22,8 +22,9 @@ export interface SyncOptions {
  * Ensure `dir` contains a clone of the repo with `branch` checked out and
  * reset to the remote tip. The clone is Projector's private cache, so a
  * forced checkout/reset is safe and keeps state predictable.
+ * Resolves with the full sha of the checked-out HEAD.
  */
-export async function syncRepo({ dir, owner, repo, branch, token, onLine }: SyncOptions): Promise<void> {
+export async function syncRepo({ dir, owner, repo, branch, token, onLine }: SyncOptions): Promise<string> {
   const url = `https://github.com/${owner}/${repo}.git`
   const config = authConfig(token)
 
@@ -40,6 +41,7 @@ export async function syncRepo({ dir, owner, repo, branch, token, onLine }: Sync
   await git.fetch(['origin', '--prune'])
   onLine?.(`Checking out ${branch}…`)
   await git.checkout(['-f', '-B', branch, `origin/${branch}`])
-  const head = await git.revparse(['--short', 'HEAD'])
-  onLine?.(`Now at ${head} on ${branch}`)
+  const head = (await git.revparse(['HEAD'])).trim()
+  onLine?.(`Now at ${head.slice(0, 7)} on ${branch}`)
+  return head
 }

@@ -38,6 +38,56 @@ export function readPackageJson(dir: string): Record<string, unknown> | null {
   }
 }
 
+export function hasExpoDep(dir: string): boolean {
+  const pkg = readPackageJson(dir)
+  if (!pkg) return false
+  const deps = {
+    ...(pkg.dependencies as object | undefined),
+    ...(pkg.devDependencies as object | undefined)
+  }
+  return 'expo' in deps
+}
+
+// Conventional locations checked first when several Expo apps exist in one repo.
+const APP_DIR_PRIORITY = ['app', 'frontend', 'mobile', 'client', 'expo', 'apps/mobile', 'packages/app']
+
+/**
+ * Locate the Expo app inside a repo: the root if it declares an `expo`
+ * dependency, otherwise the best-matching subdirectory (searched up to
+ * three levels deep, skipping vendored/build folders).
+ */
+export function findAppDir(root: string): { dir: string; rel: string } | null {
+  if (hasExpoDep(root)) return { dir: root, rel: '.' }
+  const skip = new Set(['node_modules', 'ios', 'android', 'dist', 'build', 'out', 'vendor'])
+  const candidates: string[] = []
+  const walk = (dir: string, depth: number): void => {
+    if (depth > 3) return
+    let entries: fs.Dirent[]
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.name.startsWith('.') || skip.has(entry.name)) continue
+      const sub = path.join(dir, entry.name)
+      if (hasExpoDep(sub)) candidates.push(sub)
+      else walk(sub, depth + 1)
+    }
+  }
+  walk(root, 1)
+  if (candidates.length === 0) return null
+  const relOf = (d: string): string => path.relative(root, d).replace(/\\/g, '/')
+  candidates.sort((a, b) => {
+    const ra = relOf(a)
+    const rb = relOf(b)
+    const pa = APP_DIR_PRIORITY.indexOf(ra)
+    const pb = APP_DIR_PRIORITY.indexOf(rb)
+    return (pa === -1 ? 99 : pa) - (pb === -1 ? 99 : pb) || ra.length - rb.length
+  })
+  return { dir: candidates[0], rel: relOf(candidates[0]) }
+}
+
 // CSI sequences (colors, cursor movement) and OSC sequences (titles, links)
 const ANSI_RE = /\u001b\[[0-9;?]*[a-zA-Z]|\u001b\][^\u0007]*\u0007/g
 

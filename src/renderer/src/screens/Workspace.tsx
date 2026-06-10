@@ -4,6 +4,9 @@ import type { WorkspaceSelection } from '../App'
 import { api } from '../api'
 import DeviceFrame from '../components/DeviceFrame'
 import LogsPanel, { type LogEntry } from '../components/LogsPanel'
+import { DEFAULT_DEVICE_ID, DEVICES, getDevice } from '../devices'
+
+const DEVICE_STORAGE_KEY = 'projector.device'
 
 interface Props {
   sel: WorkspaceSelection
@@ -27,6 +30,10 @@ export default function Workspace({ sel, onBack }: Props): JSX.Element {
   const [url, setUrl] = useState<string | null>(null)
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [reloadKey, setReloadKey] = useState(0)
+  const [deviceId, setDeviceId] = useState(
+    () => localStorage.getItem(DEVICE_STORAGE_KEY) ?? DEFAULT_DEVICE_ID
+  )
+  const [autoRefresh, setAutoRefreshState] = useState(true)
   const logId = useRef(0)
 
   const pushLog = useCallback((entry: Omit<LogEntry, 'id'>): void => {
@@ -64,6 +71,22 @@ export default function Workspace({ sel, onBack }: Props): JSX.Element {
     }
   }, [])
 
+  useEffect(() => {
+    void api.getAutoRefresh().then(setAutoRefreshState)
+  }, [])
+
+  const toggleAutoRefresh = (): void => {
+    const next = !autoRefresh
+    setAutoRefreshState(next)
+    void api.setAutoRefresh(next)
+  }
+
+  const selectDevice = (id: string): void => {
+    setDeviceId(id)
+    localStorage.setItem(DEVICE_STORAGE_KEY, id)
+  }
+
+  const device = getDevice(deviceId)
   const busy = phase === 'syncing' || phase === 'installing' || phase === 'starting'
 
   const onAppLog = useCallback(
@@ -111,6 +134,25 @@ export default function Workspace({ sel, onBack }: Props): JSX.Element {
         >
           ↻ Reload app
         </button>
+        <select
+          className="device-select"
+          value={deviceId}
+          onChange={(e) => selectDevice(e.target.value)}
+          title="Device model"
+        >
+          {DEVICES.map((d) => (
+            <option key={d.id} value={d.id}>
+              {d.name}
+            </option>
+          ))}
+        </select>
+        <label
+          className="auto-refresh-toggle"
+          title="Automatically re-sync when new commits land on this branch"
+        >
+          <input type="checkbox" checked={autoRefresh} onChange={toggleAutoRefresh} />
+          Auto-refresh
+        </label>
         <div className="toolbar-spacer" />
         {url && <span className="toolbar-url">{url}</span>}
         <span className={`phase-chip phase-${phase}`}>{PHASE_LABEL[phase]}</span>
@@ -118,6 +160,7 @@ export default function Workspace({ sel, onBack }: Props): JSX.Element {
 
       <div className="workspace-body">
         <DeviceFrame
+          device={device}
           url={url}
           phase={phase}
           statusMsg={statusMsg}

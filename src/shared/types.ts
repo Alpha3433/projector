@@ -78,6 +78,8 @@ export interface ProjectorApi {
   openProject(sel: ProjectSelection): Promise<void>
   stopProject(): Promise<void>
   getRecentProjects(): Promise<RecentProject[]>
+  getAutoRefresh(): Promise<boolean>
+  setAutoRefresh(value: boolean): Promise<void>
   enableTouchEmulation(webContentsId: number, metrics: DeviceMetrics): Promise<void>
   openExternal(url: string): Promise<void>
   onProjectEvent(cb: (e: ProjectEvent) => void): () => void

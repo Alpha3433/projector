@@ -68,3 +68,16 @@ export async function listBranches(token: string, owner: string, repo: string): 
   }
   return out
 }
+
+export async function getBranchHead(
+  token: string,
+  owner: string,
+  repo: string,
+  branch: string
+): Promise<string> {
+  const b = await gh<{ commit?: { sha?: string } }>(
+    token,
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/branches/${encodeURIComponent(branch)}`
+  )
+  return b.commit?.sha ?? ''
+}

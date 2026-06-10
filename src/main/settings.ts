@@ -8,6 +8,8 @@ export interface SettingsData {
   user?: { login: string; avatarUrl?: string }
   recentProjects: RecentProject[]
   lockHashes: Record<string, string>
+  /** Re-sync automatically when new commits land on the watched branch. Defaults to true. */
+  autoRefresh?: boolean
 }
 
 let cached: SettingsData | null = null

@@ -1,20 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ProjectPhase } from '../../../shared/types'
 import { api } from '../api'
+import { USER_AGENTS, type DeviceSpec } from '../devices'
 import type { LogEntry } from './LogsPanel'
-
-const DEVICE = {
-  name: 'iPhone 15 Pro',
-  width: 393,
-  height: 852,
-  dpr: 3,
-  bezel: 13,
-  outerRadius: 56,
-  innerRadius: 44
-}
-
-const IOS_USER_AGENT =
-  'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1'
 
 interface WebviewTag extends HTMLElement {
   reload(): void
@@ -22,6 +10,7 @@ interface WebviewTag extends HTMLElement {
 }
 
 interface Props {
+  device: DeviceSpec
   url: string | null
   phase: ProjectPhase
   statusMsg: string
@@ -51,21 +40,28 @@ function normalizeLevel(level: unknown): LogEntry['level'] {
   return map[String(level)] ?? 'log'
 }
 
-export default function DeviceFrame({ url, phase, statusMsg, reloadKey, onAppLog }: Props): JSX.Element {
+export default function DeviceFrame({
+  device,
+  url,
+  phase,
+  statusMsg,
+  reloadKey,
+  onAppLog
+}: Props): JSX.Element {
   const areaRef = useRef<HTMLDivElement>(null)
   const webviewRef = useRef<WebviewTag | null>(null)
   const [scale, setScale] = useState(0.8)
   const [clock, setClock] = useState(formatClock())
 
-  const totalW = DEVICE.width + DEVICE.bezel * 2
-  const totalH = DEVICE.height + DEVICE.bezel * 2
+  const totalW = device.width + device.chrome.side * 2
+  const totalH = device.height + device.chrome.top + device.chrome.bottom
 
   useEffect(() => {
     const el = areaRef.current
     if (!el) return
     const ro = new ResizeObserver(() => {
       const s = Math.min((el.clientWidth - 48) / totalW, (el.clientHeight - 48) / totalH, 1.1)
-      setScale(Math.max(0.3, s))
+      setScale(Math.max(0.25, s))
     })
     ro.observe(el)
     return () => ro.disconnect()
@@ -82,9 +78,9 @@ export default function DeviceFrame({ url, phase, statusMsg, reloadKey, onAppLog
 
     const onReady = (): void => {
       void api.enableTouchEmulation(wv.getWebContentsId(), {
-        width: DEVICE.width,
-        height: DEVICE.height,
-        dpr: DEVICE.dpr
+        width: device.width,
+        height: device.height,
+        dpr: device.dpr
       })
     }
     const onConsole = (e: Event): void => {
@@ -107,7 +103,9 @@ export default function DeviceFrame({ url, phase, statusMsg, reloadKey, onAppLog
       wv.removeEventListener('console-message', onConsole)
       wv.removeEventListener('did-fail-load', onFail)
     }
-  }, [url, reloadKey, onAppLog])
+  }, [url, reloadKey, device, onAppLog])
+
+  const maskSpread = Math.max(device.chrome.top, device.chrome.bottom, device.chrome.side) + 6
 
   return (
     <div className="device-area" ref={areaRef}>
@@ -117,25 +115,29 @@ export default function DeviceFrame({ url, phase, statusMsg, reloadKey, onAppLog
           style={{
             width: totalW,
             height: totalH,
-            borderRadius: DEVICE.outerRadius,
-            padding: DEVICE.bezel,
+            borderRadius: device.chrome.radius,
+            padding: `${device.chrome.top}px ${device.chrome.side}px ${device.chrome.bottom}px`,
             transform: `scale(${scale})`,
             transformOrigin: 'top left'
           }}
         >
           <div
             className="device-screen"
-            style={{ width: DEVICE.width, height: DEVICE.height, borderRadius: DEVICE.innerRadius }}
+            style={{
+              width: device.width,
+              height: device.height,
+              borderRadius: device.screenRadius
+            }}
           >
             {url ? (
               <webview
-                key={`${url}::${reloadKey}`}
+                key={`${url}::${reloadKey}::${device.id}`}
                 ref={(node) => {
                   webviewRef.current = node as WebviewTag | null
                 }}
                 className="device-webview"
                 src={url}
-                useragent={IOS_USER_AGENT}
+                useragent={USER_AGENTS[device.ua]}
               />
             ) : (
               <BootScreen phase={phase} statusMsg={statusMsg} />
@@ -143,9 +145,12 @@ export default function DeviceFrame({ url, phase, statusMsg, reloadKey, onAppLog
 
             <div
               className="screen-corner-mask"
-              style={{ borderRadius: DEVICE.innerRadius, boxShadow: `0 0 0 ${DEVICE.bezel + 4}px #15171c` }}
+              style={{
+                borderRadius: device.screenRadius,
+                boxShadow: `0 0 0 ${maskSpread}px #15171c`
+              }}
             />
-            <div className="status-bar">
+            <div className={`status-bar status-bar-${device.statusBar}`}>
               <span className="status-time">{clock}</span>
               <span className="status-icons">
                 <SignalIcon />
@@ -153,9 +158,16 @@ export default function DeviceFrame({ url, phase, statusMsg, reloadKey, onAppLog
                 <BatteryIcon />
               </span>
             </div>
-            <div className="dynamic-island" />
-            <div className="home-indicator" />
+            {device.cutout === 'island' && <div className="dynamic-island" />}
+            {device.cutout === 'notch' && <div className="notch" />}
+            {device.homeIndicator && <div className="home-indicator" />}
           </div>
+          {device.homeButton && (
+            <div
+              className="home-button"
+              style={{ bottom: (device.chrome.bottom - 48) / 2 }}
+            />
+          )}
         </div>
       </div>
     </div>

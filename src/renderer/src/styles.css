@@ -426,6 +426,26 @@ select:focus {
   font-size: 13px;
   font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 }
+.device-select {
+  width: auto;
+  max-width: 190px;
+  padding: 5px 10px;
+  font-size: 13px;
+}
+.auto-refresh-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.auto-refresh-toggle input {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
 .toolbar-spacer {
   flex: 1;
 }
@@ -481,6 +501,7 @@ select:focus {
     radial-gradient(ellipse at 75% 80%, rgba(91, 217, 155, 0.05), transparent 55%);
 }
 .device-frame {
+  position: relative;
   background: linear-gradient(160deg, #2a2d35 0%, var(--bezel) 30%, #0e1014 100%);
   box-shadow:
     0 0 0 2px #3a3e48,
@@ -523,6 +544,15 @@ select:focus {
   align-items: center;
   gap: 7px;
 }
+.status-bar-compact {
+  height: 24px;
+  padding: 4px 10px 0;
+  font-size: 12px;
+  font-weight: 500;
+}
+.status-bar-compact .status-icons svg {
+  transform: scale(0.8);
+}
 .dynamic-island {
   position: absolute;
   top: 11px;
@@ -532,6 +562,28 @@ select:focus {
   height: 36px;
   background: #000;
   border-radius: 20px;
+  pointer-events: none;
+}
+.notch {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 162px;
+  height: 31px;
+  background: #15171c;
+  border-radius: 0 0 20px 20px;
+  pointer-events: none;
+}
+.home-button {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 2.5px solid #3a3e48;
+  background: radial-gradient(circle at 35% 30%, #23262e, #0d0f13);
   pointer-events: none;
 }
 .home-indicator {

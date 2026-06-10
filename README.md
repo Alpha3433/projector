@@ -55,17 +55,25 @@ Electron `safeStorage`.
 ```
 pick repo + branch
    → clone into Projector's cache (blobless partial clone for speed)
+   → locate the Expo app (repo root or a subdirectory — monorepos with
+     frontend/ + backend/ layouts are detected automatically)
    → detect package manager (npm / yarn / pnpm / bun) and install deps
      (skipped when the lockfile hasn't changed)
    → spawn `npx expo start --web` on a free port
-   → render http://localhost:<port> in a <webview> inside the iPhone frame
+   → render http://localhost:<port> in a <webview> inside the device frame
    → CDP: Emulation.setDeviceMetricsOverride + setTouchEmulationEnabled
 ```
 
 The toolbar lets you switch branches (one click — Projector re-syncs and restarts the server),
-pull the latest commits, and reload the frame. The right-hand panel streams three log sources:
-`SYS` (Projector pipeline), `SRV` (Expo / Metro dev server), and `APP` (the app's own
-`console.*` output, captured from the webview).
+pull the latest commits, reload the frame, and pick a device model (iPhone 15 Pro / Pro Max,
+iPhone 13 mini, iPhone SE, iPad mini — each with its own resolution, pixel ratio, and chrome).
+The right-hand panel streams three log sources: `SYS` (Projector pipeline), `SRV` (Expo / Metro
+dev server), and `APP` (the app's own `console.*` output, captured from the webview).
+
+**Auto-refresh:** while a project is running, Projector polls the branch tip on GitHub every
+20 seconds. When a new commit lands it re-syncs the working tree in place so Metro's Fast
+Refresh updates the app live; if the dependency manifest changed, the whole pipeline restarts
+instead. Toggle it from the toolbar.
 
 Project clones live under Electron's `userData` directory (`projects/<owner>__<repo>`), so
 reopening a project is fast and installs are skipped when nothing changed.
@@ -96,6 +104,9 @@ src/
 - Bare React Native repos without web support won't start — Projector surfaces the error
   rather than failing silently.
 - One project runs at a time; opening another stops the previous dev server.
+- Apps that need environment variables (`.env`) to reach their backend will boot but may show
+  network errors until you add a `.env` to the cached clone — Projector logs a hint when it
+  spots a `.env.example` without a `.env`.
 
 ## License
 
