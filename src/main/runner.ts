@@ -88,6 +88,41 @@ export function findAppDir(root: string): { dir: string; rel: string } | null {
   return { dir: candidates[0], rel: relOf(candidates[0]) }
 }
 
+/**
+ * Expo's `web.output: "static"` server-renders every route in Node — even in
+ * dev — and native-first libraries (moti/framer-motion, reanimated, masked
+ * views) frequently crash there, yielding a bundled `_error.js` page and a
+ * white screen in the frame. For previews we only need a plain SPA, so when
+ * Projector owns the checkout (`mutate`) it flips the cached copy to
+ * "single"; for user-owned local folders it just explains the fix.
+ */
+export function ensureSingleWebOutput(
+  appDir: string,
+  log: (text: string) => void,
+  mutate: boolean
+): void {
+  const appJsonPath = path.join(appDir, 'app.json')
+  if (!fs.existsSync(appJsonPath)) return
+  try {
+    const raw = JSON.parse(fs.readFileSync(appJsonPath, 'utf8'))
+    const web = raw?.expo?.web
+    if (!web || web.output !== 'static') return
+    if (!mutate) {
+      log(
+        "Heads-up: this app sets web.output 'static' (server-side rendering). If the preview white-screens with a bundled _error.js, change it to 'single' — animation/native-first libraries often crash Node-side rendering."
+      )
+      return
+    }
+    web.output = 'single'
+    fs.writeFileSync(appJsonPath, JSON.stringify(raw, null, 2))
+    log(
+      "Preview tweak: web.output 'static' → 'single' in Projector's cached copy (dev-time server rendering often crashes on native-first libraries). Your repository is untouched."
+    )
+  } catch {
+    // unparseable app.json — let expo report it properly
+  }
+}
+
 // CSI sequences (colors, cursor movement) and OSC sequences (titles, links)
 const ANSI_RE = /\u001b\[[0-9;?]*[a-zA-Z]|\u001b\][^\u0007]*\u0007/g
 

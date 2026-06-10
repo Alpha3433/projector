@@ -20,6 +20,7 @@ import { getBranchHead, listBranches, listRepos } from './github'
 import { syncRepo } from './gitops'
 import {
   detectPackageManager,
+  ensureSingleWebOutput,
   findAppDir,
   getFreePort,
   installDeps,
@@ -100,11 +101,18 @@ interface LaunchResult {
  * no lockfile hash is recorded (used for local working copies, which the
  * user manages themselves).
  */
+interface LaunchOptions {
+  hashKeyBase: string
+  /** Trust a pre-existing node_modules even without a recorded lockfile hash. */
+  lenientInstall: boolean
+  /** Whether Projector owns this checkout and may patch it for preview. */
+  ownedCheckout: boolean
+}
+
 async function launchApp(
   run: Run,
   rootDir: string,
-  hashKeyBase: string,
-  lenientInstall: boolean,
+  { hashKeyBase, lenientInstall, ownedCheckout }: LaunchOptions,
   emit: Emit,
   log: Log
 ): Promise<LaunchResult> {
@@ -141,6 +149,8 @@ async function launchApp(
       break
     }
   }
+
+  ensureSingleWebOutput(appDir, (t) => log(t, 'system'), ownedCheckout)
 
   const pm = detectPackageManager(appDir)
   const hash = lockfileHash(appDir, pm)
@@ -192,7 +202,13 @@ async function openProject(sel: ProjectSelection): Promise<void> {
     const headSha = await syncRepo({ dir, ...sel, token, onLine: (t) => log(t, 'system') })
     checkAborted()
 
-    const { appDir, pm, url } = await launchApp(run, dir, projectKey(sel), false, emit, log)
+    const { appDir, pm, url } = await launchApp(
+      run,
+      dir,
+      { hashKeyBase: projectKey(sel), lenientInstall: false, ownedCheckout: true },
+      emit,
+      log
+    )
 
     emit({ phase: 'ready', url, message: 'Dev server ready' })
     addRecentProject(sel)
@@ -222,7 +238,13 @@ async function openLocalProject(localPath: string): Promise<void> {
       'system'
     )
 
-    const { url } = await launchApp(run, localPath, `local:${localPath}`, true, emit, log)
+    const { url } = await launchApp(
+      run,
+      localPath,
+      { hashKeyBase: `local:${localPath}`, lenientInstall: true, ownedCheckout: false },
+      emit,
+      log
+    )
 
     emit({ phase: 'ready', url, message: 'Dev server ready — watching local files' })
     addRecentLocal(localPath)
@@ -264,6 +286,8 @@ function startCommitWatcher(run: Run, sel: ProjectSelection, token: string, ctx:
         const hashBefore = lockfileHash(ctx.appDir, ctx.pm)
         head = await syncRepo({ dir: ctx.dir, ...sel, token, onLine: (t) => ctx.log(t, 'system') })
         if (current !== run) return
+        // the forced checkout reverts preview tweaks in the cached copy
+        ensureSingleWebOutput(ctx.appDir, (t) => ctx.log(t, 'system'), true)
         if (lockfileHash(ctx.appDir, ctx.pm) !== hashBefore) {
           ctx.log('Dependency manifest changed — restarting the pipeline…', 'system')
           void openProject(sel)

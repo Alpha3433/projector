@@ -103,6 +103,18 @@ src/
   shared/      types shared across processes
 ```
 
+## Troubleshooting
+
+**White screen + a `_error.js` bundle in the logs.** Apps with `"web": { "output": "static" }`
+in `app.json` are server-rendered in Node even during dev, and native-first libraries
+(moti / framer-motion, masked views, some reanimated setups) often crash there. For GitHub
+projects Projector patches its own cached copy to `"single"` automatically (your repo is never
+modified); for local folders it logs a heads-up — change the value to `"single"` in your
+`app.json` to fix it at the source.
+
+**App renders but API calls fail.** The dev server runs only the app, not its backend. Check
+the `SYS` log for the `.env` hint and add the environment variables the app expects.
+
 ## Known limitations
 
 - Apps run via **react-native-web**, so native-only modules (camera, Bluetooth, some gesture
